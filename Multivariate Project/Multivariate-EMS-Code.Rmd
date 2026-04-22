@@ -1,0 +1,110 @@
+---
+title: "Multivariate-EMS-Code"
+author: "Sanjana Bajaj"
+date: "2026-04-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+data <- read.csv("Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20260415.csv", header=TRUE)
+
+## NOTE! THIS DATA was downloaded by me earlier, filtered to j the last 6 months.
+## so the cleaning is only finding NAs for this recent data
+# if you run it later w full data maybe theres more stuff to drop
+
+
+```
+
+```{r}
+sapply(data, function(col) {
+  sum(is.na(col) | (is.character(col) & col == ""))
+})
+
+# drop the 6 rows with no case location (lat long)
+# drop the 3950 rows with no call type group
+# original priority - 1939 empty. priority + final priority are all present. what to do?
+# 3 rows missing box (smallest unit, 2400 total, to divide the city). w/ lat long, do we even need this? can drop the column.
+# 4 station areas missing - correlated w location or not? can prob j drop the rows
+# 192 zip codes missing - prob drop this row entirely? 20-25 zipcodes in SF vs ~80 neighborhoods. I feel like neighborhoods will be more intuitive for a shiny map / understanding of response times.
+# 157 cities missing? they should all be SF, why would it be missing? maybe calls that were cancelled? idk
+# 6 addresses empty - can drop address col if we have neighborhood + lat long
+# 4 missing Available.DtTm - can drop this col
+# most rows are missing transport and hospital timebc this is only IF the unit is an ambulance. add a boolean col Ambulance and make the empty cols NA/0 or something
+# 4871 missing response DtTm? lowk drop the col
+# on scene DtM missing 39742 rows - have to drop
+
+```
+        - response_time = On Scene - Received
+        - dispatch_time = Dispatch - Received
+        - transport_time = Hospital - On Scene
+      
+```{r}
+data[data == ""] <- NA
+
+data <- data %>%
+  filter(
+    !is.na(Call.Type.Group),  
+    !is.na(case_location),                     
+    !is.na(Station.Area),                        
+    !is.na(City),                               
+    !is.na(On.Scene.DtTm)                        
+  )
+```
+
+```{r}
+library(lubridate)
+library(dplyr)
+
+data <- data %>%
+  mutate(
+    Received.DtTm  = ymd_hms(Received.DtTm),
+    Dispatch.DtTm  = ymd_hms(Dispatch.DtTm),
+    On.Scene.DtTm  = ymd_hms(On.Scene.DtTm),
+    Hospital.DtTm  = ymd_hms(Hospital.DtTm)
+  )
+
+data <- data %>%
+  mutate(
+    response_time = as.numeric(difftime(On.Scene.DtTm, Received.DtTm, units = "mins")),
+    dispatch_time = as.numeric(difftime(Dispatch.DtTm, Received.DtTm, units = "mins")),
+    transport_time = as.numeric(difftime(Hospital.DtTm, On.Scene.DtTm, units = "mins"))
+  )
+
+```
+
+```{r}
+data <- data %>%
+  select(
+    -Box,
+    -Address,
+    -data_as_of,
+    -data_loaded_at,
+    -RowID,
+    -Call.Number,
+    -Incident.Number,
+    -Original.Priority,
+    -Zipcode.of.Incident,
+    -Available.DtTm
+  )
+
+```
+
+```{r}
+
+library(lubridate)
+
+data <- data %>%
+  mutate(
+    hour = hour(Received.DtTm),
+    day_of_week = wday(Received.DtTm, label = TRUE)
+  )
+
+```
+
+
+
+

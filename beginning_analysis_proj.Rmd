@@ -1,0 +1,35 @@
+---
+title: "exploratory_analysis"
+output: html_document
+date: "2026-04-21"
+---
+
+```{r}
+library(readr)
+data <- read_csv("emergency_response_data.csv")
+View(emergency_response_data)
+
+```
+
+```{r}
+### DATA CLEANING ###
+
+
+unique(data$`Call Type`) 
+##mb lets delete the cols with call types that we are not necesarily interested? 
+# like gaf marine fires lowk
+# or strange odors...
+
+## We can also delete address since we have already lat and long info
+
+```
+
+```{r}
+
+### Questions to Answer ###
+
+# WHich call type group has the quickest response time?
+
+
+
+```

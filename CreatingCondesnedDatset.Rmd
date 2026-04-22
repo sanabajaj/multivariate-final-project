@@ -1,0 +1,81 @@
+---
+title: "Multivariate Project"
+output: html_document
+date: "2026-04-21"
+---
+
+```{r setup, include=FALSE}
+
+library(data.table)
+#data <- fread("Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20260421.csv")
+#data<- na.omit(data)
+#setDT(data)
+
+```
+
+```{r}
+length(unique(data$`Incident Number`))
+nrow(data)
+```
+
+```{r}
+data[, `Call Date` := as.Date(`Call Date`, format = "%m/%d/%Y")]
+cutoff <- as.Date("2021-01-01")
+data_last5 <- data[`Call Date` >= cutoff]
+
+```
+
+
+```{r}
+
+incident_flags <- data_last5 %>%
+  group_by(`Incident Number`) %>%
+  summarise(
+    medical_als = as.integer(any(`Unit Type` == "MEDIC")),
+    medical_bls = as.integer(any(`Unit Type` %in% c("BLS", "PRIVATE"))),
+    
+    fire_response = as.integer(any(`Unit Type` %in% c("ENGINE", "TRUCK", "RESCUE SQUAD"))),
+    
+    command = as.integer(any(`Unit Type` %in% c("CHIEF", "RESCUE CAPTAIN", "CP"))),
+    
+    support = as.integer(any(`Unit Type` %in% c("SUPPORT"))),
+    
+    .groups = "drop"
+  )
+```
+
+
+```{r}
+incident_base <- data_last5 %>%
+  distinct(`Incident Number`, .keep_all = TRUE)
+
+```
+
+```{r}
+
+incident_level <- incident_base %>%
+  left_join(incident_flags, by = "Incident Number")
+
+```
+
+```{r}
+incident_level_clean <- incident_level %>%
+  select(-is_engine, -is_medic, -is_truck,
+         -is_chief, -is_rescue, -is_private,
+         -is_rescue_captain, -is_cp, -is_bls,
+         -is_support)
+  #accidently duplicated some things, so now let's just keep the columns that indicate is als, bls, command officers arrives, and support
+```
+
+```{r}
+
+incident_last3 <- incident_level_clean %>%
+  filter(`Call Date` >= as.Date("2023-03-31")) #sf got budget increase in 2024-2025 fiscal yr, lets look at halfway through 2023-24 fiscal yr to see any dif in response times
+
+#end up w 500k rows
+```
+
+```{r}
+write.csv(incident_last3, "emergency_response_data.csv", row.names = FALSE)
+
+```
