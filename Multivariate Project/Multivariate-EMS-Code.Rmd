@@ -9,98 +9,126 @@ output: html_document
 knitr::opts_chunk$set(echo = TRUE)
 ```
 
-```{r}
-data <- read.csv("Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20260415.csv", header=TRUE)
-
-## NOTE! THIS DATA was downloaded by me earlier, filtered to j the last 6 months.
-## so the cleaning is only finding NAs for this recent data
-# if you run it later w full data maybe theres more stuff to drop
-
-
-```
 
 ```{r}
-sapply(data, function(col) {
+
+# check which columns have NAs or empty cells
+sapply(emergency_response_data, function(col) {
   sum(is.na(col) | (is.character(col) & col == ""))
 })
 
-# drop the 6 rows with no case location (lat long)
-# drop the 3950 rows with no call type group
-# original priority - 1939 empty. priority + final priority are all present. what to do?
-# 3 rows missing box (smallest unit, 2400 total, to divide the city). w/ lat long, do we even need this? can drop the column.
-# 4 station areas missing - correlated w location or not? can prob j drop the rows
-# 192 zip codes missing - prob drop this row entirely? 20-25 zipcodes in SF vs ~80 neighborhoods. I feel like neighborhoods will be more intuitive for a shiny map / understanding of response times.
-# 157 cities missing? they should all be SF, why would it be missing? maybe calls that were cancelled? idk
-# 6 addresses empty - can drop address col if we have neighborhood + lat long
-# 4 missing Available.DtTm - can drop this col
-# most rows are missing transport and hospital timebc this is only IF the unit is an ambulance. add a boolean col Ambulance and make the empty cols NA/0 or something
-# 4871 missing response DtTm? lowk drop the col
-# on scene DtM missing 39742 rows - have to drop
+```
+
+```{r}
+
+# drop columns that are redundant or irrelevant for response time
+emergency_response_data <- emergency_response_data %>%
+  select(
+    -Box,
+    -Address,
+    -`Unit ID`,
+    -`Call Number`,
+    -`Original Priority`,
+    -`Zipcode of Incident`,
+    -`Available DtTm`,
+    -`Transport DtTm`,
+    -`Hospital DtTm`,
+    -`Watch Date`,
+    -`Response DtTm`,
+    -`Supervisor District`,
+    -`Unit sequence in call dispatch`,
+    -`Final Priority`,
+    -`Station Area`,
+    -`Battalion`,
+    -`Call Type Group`,
+  )
 
 ```
-        - response_time = On Scene - Received
-        - dispatch_time = Dispatch - Received
-        - transport_time = Hospital - On Scene
-      
-```{r}
-data[data == ""] <- NA
 
-data <- data %>%
+```{r}
+emergency_response_data <- emergency_response_data %>% select(-`Entry DtTm`)
+
+```
+
+```{r}
+emergency_response_data[emergency_response_data == ""] <- NA
+
+# drop all the rows with NAs/empty cells for necessary features
+emergency_response_data <- emergency_response_data %>%
   filter(
-    !is.na(Call.Type.Group),  
     !is.na(case_location),                     
-    !is.na(Station.Area),                        
-    !is.na(City),                               
-    !is.na(On.Scene.DtTm)                        
+    !is.na(`On Scene DtTm`),
+    !is.na(City)
   )
+```
+
+```{r}
+# some SF neighborhoods were marked in the "city" col. these should say SF since they are part of SF
+
+emergency_response_data$City[emergency_response_data$City %in% c("Presidio", "Treasure Isla", "Hunters Point", "Fort Mason", "Yerba Buena")] <- "San Francisco"
+
+
+```
+
+```{r}
+
+sapply(emergency_response_data, function(col) {
+  sum(is.na(col) | (is.character(col) & col == ""))
+})
+
 ```
 
 ```{r}
 library(lubridate)
 library(dplyr)
 
-data <- data %>%
+# convert to date-time
+emergency_response_data <- emergency_response_data %>%
   mutate(
-    Received.DtTm  = ymd_hms(Received.DtTm),
-    Dispatch.DtTm  = ymd_hms(Dispatch.DtTm),
-    On.Scene.DtTm  = ymd_hms(On.Scene.DtTm),
-    Hospital.DtTm  = ymd_hms(Hospital.DtTm)
+    `Received DtTm`  = ymd_hms(`Received DtTm`),
+    `On Scene DtTm`  = ymd_hms(`On Scene DtTm`),
+    `Dispatch DtTm` = ymd_hms(`Dispatch DtTm`)
   )
 
-data <- data %>%
+# create the response_time variable
+emergency_response_data <- emergency_response_data %>%
   mutate(
-    response_time = as.numeric(difftime(On.Scene.DtTm, Received.DtTm, units = "mins")),
-    dispatch_time = as.numeric(difftime(Dispatch.DtTm, Received.DtTm, units = "mins")),
-    transport_time = as.numeric(difftime(Hospital.DtTm, On.Scene.DtTm, units = "mins"))
-  )
-
-```
-
-```{r}
-data <- data %>%
-  select(
-    -Box,
-    -Address,
-    -data_as_of,
-    -data_loaded_at,
-    -RowID,
-    -Call.Number,
-    -Incident.Number,
-    -Original.Priority,
-    -Zipcode.of.Incident,
-    -Available.DtTm
-  )
+    response_time = as.numeric(difftime(`On Scene DtTm`, `Received DtTm`, units = "mins"))  )
 
 ```
 
 ```{r}
 
-library(lubridate)
+# remove response & dispatch times < 0, and the one incident with 1911 min response & dispatch time
 
-data <- data %>%
+emergency_response_data <- emergency_response_data %>%
+  filter(response_time > 0)
+
+
+```
+
+```{r}
+head(sort(emergency_response_data$response_time, decreasing = TRUE), 30)
+
+# drop the rows with response time > 180 mins -- this is very likely to be a special case, or a data entry error
+
+emergency_response_data <- emergency_response_data %>%
+  filter(response_time <= 180)
+
+```
+
+```{r}
+
+hist(emergency_response_data$response_time)
+```
+
+```{r}
+
+
+emergency_response_data <- emergency_response_data %>%
   mutate(
-    hour = hour(Received.DtTm),
-    day_of_week = wday(Received.DtTm, label = TRUE)
+    hour = hour(`Received DtTm`),
+    day_of_week = wday(`Received DtTm`, label = TRUE)
   )
 
 ```
