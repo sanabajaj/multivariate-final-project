@@ -1,0 +1,186 @@
+---
+title: "Regressions"
+output: html_document
+date: "2026-04-26"
+---
+
+```{r}
+
+set.seed(423)
+
+train_idx <- sample(1:nrow(emergency_response_data), 0.8 * nrow(emergency_response_data))
+
+train <- emergency_response_data[train_idx, ]
+test  <- emergency_response_data[-train_idx, ]
+```
+
+
+```{r}
+#lets first try a basic linear regression
+
+model1<- lm(response_time ~ `Call Type` + `Call Final Disposition` + `City` + `Priority`
+   + `Number of Alarms` + `Fire Prevention District` +
+     medical_als + medical_bls + fire_response + command + support + hour +
+     day_of_week, data = train )
+
+pred_model1<- predict(model1, newdata = test)
+
+y<- test$response_time
+
+r2_model1 <- 1 - sum((y - pred_model1)^2) / sum((y - mean(y))^2)
+
+r2_model1 
+
+```
+
+
+```{r}
+#Lets do some variable selection
+step.model <- step(model1, direction = "both")
+
+summary(step.model)
+
+```
+
+
+```{r}
+
+#let's try log transforming 
+library(car)
+
+log_response_train <- log(train$response_time)
+log_response_test <- log(test$response_time)
+
+log_lm<- lm(log_response_train ~`Call Type` + `Call Final Disposition` + City + 
+    Priority + `Number of Alarms` + `Fire Prevention District` + 
+    medical_als + medical_bls + fire_response + command + support + 
+    hour + day_of_week, data = train)
+
+summary(log_lm)
+vif(log_lm)
+
+```
+
+
+```{r}
+
+pred_logmodel<- predict(log_lm, newdata = test)
+
+
+r2_log <- 1 - sum((log_response_test - pred_logmodel)^2) / sum((log_response_test - mean(log_response_test))^2)
+
+r2_log
+
+```
+
+
+Linear regression is not the best--- lets try quantile regression
+
+```{r}
+#let's see how quantile regression performs
+
+set.seed(423)
+
+train_idx <- sample(1:nrow(emergency_response_data), 0.8 * nrow(emergency_response_data))
+
+train <- emergency_response_data[train_idx, ]
+test  <- emergency_response_data[-train_idx, ]
+```
+
+
+```{r}
+library(quantreg)
+quant.model <- rq(response_time ~ `Call Type` + `Call Final Disposition` +
+                     City + Priority + `Number of Alarms` +
+                  `Fire Prevention District` +
+                     medical_als + medical_bls + fire_response +
+                     command + support + hour + day_of_week,
+                   tau = 0.5,
+                   data = train, method = "fn")
+```
+
+
+```{r}
+
+#let's see how quantile regression performs
+
+pred <- predict(quant.model, newdata = test)
+mae <- mean(abs(test$response_time - pred))
+mae
+
+baseline_pred <- median(train$response_time)
+
+mae_baseline <- mean(abs(test$response_time - baseline_pred))
+mae_baseline
+
+1 - mae / mae_baseline
+#so our model reduces MAE by 29% relative to the median baseline predictor
+#still not the best model
+```
+
+
+lasso
+```{r}
+library(glmnet)
+
+
+x <- model.matrix(
+  response_time ~ `Call Type` + `Call Final Disposition` + City +
+    Priority + `Number of Alarms` + 
+    `Fire Prevention District` + medical_als + medical_bls +
+    fire_response + command + support + hour + day_of_week,
+  data = emergency_response_data
+)[, -1]
+
+y<- log_response
+set.seed(423)
+train_idx <- sample(1:nrow(x), 0.8 * nrow(x))
+
+x_train <- x[train_idx, ]
+x_test  <- x[-train_idx, ]
+
+y_train <- y[train_idx]
+y_test  <- y[-train_idx]
+
+```
+
+
+
+```{r}
+
+lasso_model <- glmnet(
+  x_train, y_train, alpha = 1, family = "gaussian"
+)
+
+summary(lasso_model)
+
+cv_lasso <- cv.glmnet(
+  x_train, y_train, alpha = 1, family = "gaussian"
+)
+
+plot(cv_lasso)
+
+best_lasso<- cv_lasso$lambda.min
+```
+
+
+```{r}
+
+pred <- predict(cv_lasso, s = best_lasso, newx = x_test)
+
+mae <- mean(abs(pred - y_test))
+rmse <- sqrt(mean((pred - y_test)^2))
+
+mae
+rmse
+#go over interpretation
+
+```
+
+```{r}
+
+summary(model1)
+
+```
+
+
