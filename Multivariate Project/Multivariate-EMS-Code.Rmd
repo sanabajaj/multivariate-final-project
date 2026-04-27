@@ -119,17 +119,492 @@ emergency_response_data <- emergency_response_data %>%
 
 ```{r}
 
-hist(emergency_response_data$response_time)
-```
-
-```{r}
-
 
 emergency_response_data <- emergency_response_data %>%
   mutate(
     hour = hour(`Received DtTm`),
-    day_of_week = wday(`Received DtTm`, label = TRUE)
+    day_of_week = wday(`Received DtTm`, label = TRUE),
+    month = month(`Received DtTm`, label = TRUE),
+    year = year(`Received DtTm`)
   )
+
+```
+
+```{r}
+emergency_response_data <- emergency_response_data %>% select(-`Call Date`)
+
+```
+
+```{r}
+emergency_response_data <- emergency_response_data %>% select(-`Unit Type`)
+
+
+```
+
+
+```{r}
+## EXPLORATORY DATA ANALYSIS
+
+summary(emergency_response_data)
+
+```
+
+```{r}
+
+hist(emergency_response_data$response_time)
+hist(log1p(emergency_response_data$response_time))
+
+
+```
+
+
+```{r}
+# visualize response time by hour of day, day of week, month
+
+# hour of day (y range is small (like 2 mins), but there is a spike in the daytime)
+emergency_response_data %>%
+  group_by(hour) %>%
+  summarise(mean_rt = mean(response_time)) %>%
+  plot()
+
+```
+
+```{r}
+
+# day of week (weekdays higher, just by a bit)
+emergency_response_data %>%
+  group_by(day_of_week) %>%
+  summarise(mean_rt = mean(response_time)) %>%
+  plot()
+
+```
+
+```{r}
+
+# month (even tighter y range, kind of all over the place)
+emergency_response_data %>%
+  group_by(month) %>%
+  summarise(mean_rt = mean(response_time)) %>%
+  plot()
+
+```
+
+```{r}
+
+# response time by call type
+emergency_response_data %>%
+  group_by(`Call Type`) %>%
+  summarise(mean_rt = mean(response_time), n = n()) %>%
+  arrange(desc(mean_rt))
+
+```
+
+```{r}
+# priority
+emergency_response_data %>%
+  group_by(Priority) %>%
+  summarise(mean_rt = mean(response_time), n=n())
+```
+
+```{r}
+# neighborhood
+emergency_response_data %>%
+  group_by(`Neighborhooods - Analysis Boundaries`) %>%
+  summarise(mean_rt = mean(response_time), n=n()) %>%
+  arrange(desc(mean_rt))
+
+# so 10 incidents have "None"
+# western addition is fastest - google confirms - has a lot of private providers
+# presidio heights, pac heights, rich asf
+```
+
+```{r, fig.height=10}
+boxplot(response_time ~ `Fire Prevention District`, data = emergency_response_data, outcex=0.5)
+
+```
+
+```{r, fig.height=10, fig.width=8}
+boxplot(response_time ~ fire_response, data = emergency_response_data, outcex=0.3)
+
+```
+
+```{r, fig.height=10, fig.width=8}
+boxplot(response_time ~ medical_als, data = emergency_response_data, outcex=0.3)
+
+```
+
+
+```{r}
+# most common incidents by neighborhood
+neighborhood_calls <- emergency_response_data %>%
+  group_by(`Neighborhooods - Analysis Boundaries`, `Call Type`) %>%
+  summarise(n = n(), .groups = "drop")
+
+top_calls <- neighborhood_calls %>%
+  group_by(`Neighborhooods - Analysis Boundaries`) %>%
+  slice_max(order_by = n, n=10)
+
+top_calls
+
+```
+
+```{r, fig.width = 13}
+
+# visualize
+library(ggplot2)
+
+ggplot(top_calls, aes(x = reorder(`Neighborhooods - Analysis Boundaries`, n), y = n, fill = `Call Type`)) +
+  geom_col() +
+  coord_flip()
+
+```
+
+```{r}
+## K MEANS
+
+# no grouping
+call_data <- emergency_response_data %>%
+  select(
+    response_time,
+    medical_als,
+    medical_bls,
+    fire_response,
+    command,
+    support,
+    hour,
+    Priority,
+    `Number of Alarms`,
+    day_of_week
+  )
+
+# don't include neighborhood + call type -- too many dummy vars would be created
+# see afterwards - which neighborhoods/call types dominate each cluster
+
+library(fastDummies)
+call_data_encoded <- fastDummies::dummy_cols(
+  call_data,
+  select_columns = c("day_of_week", "Priority"),
+  remove_first_dummy = TRUE,   # avoids multicollinearity
+  remove_selected_columns = TRUE
+)
+
+```
+
+
+```{r}
+# scale
+X1 <- scale(call_data_encoded)
+
+```
+
+```{r}
+# pick k
+elbow <- sapply(1:10, function(k) {
+  kmeans(X1, centers=k, nstart=10)$tot.withinss
+})
+plot(1:10, elbow,type="b")
+
+#5?
+
+```
+
+
+
+```{r}
+set.seed(21)
+
+k1 <- kmeans(X1, centers = 5, nstart = 25)
+
+call_data_encoded$cluster <- k1$cluster
+
+```
+
+```{r}
+call_data_encoded %>%
+  group_by(cluster) %>%
+  summarise(across(everything(), mean))
+
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(call_data_encoded, aes(x = factor(cluster), y = response_time)) +
+  geom_boxplot() +
+  labs(x = "Cluster", y = "Response Time")
+
+```
+
+```{r}
+# leave only rows with priority=2 (non emergency), and priority=3 (emergency), which is what the documentation describes (other character codes are less frequent anyways.. except 1, but we have no way of knowing for sure what it means).
+
+# remove hour, number of alarms, day of week. these vars had basically the same value across clusters.
+
+emergency_response_data %>%
+  count(Priority, sort = TRUE)
+
+call_data_2 <- emergency_response_data %>%
+  select(
+    response_time,
+    medical_als,
+    medical_bls,
+    fire_response,
+    command,
+    support,
+    Priority
+  )
+
+call_data_2 <- call_data_2 %>%
+  filter(Priority %in% c("2", "3")) %>%
+  mutate(Priority = as.numeric(Priority))
+
+```
+
+
+```{r}
+# scale
+X2 <- scale(call_data_2)
+
+```
+
+```{r}
+# pick k
+elbow <- sapply(1:10, function(k) {
+  kmeans(X2, centers=k, nstart=10, iter.max=50)$tot.withinss
+})
+plot(1:10, elbow,type="b")
+
+#4?
+
+```
+
+```{r}
+
+set.seed(21)
+
+k2 <- kmeans(X2, centers = 4, nstart = 25)
+
+call_data_2$cluster <- k2$cluster
+
+```
+
+```{r}
+call_data_2 %>%
+  group_by(cluster) %>%
+  summarise(across(everything(), mean))
+
+```
+```{r}
+ems_filtered <- emergency_response_data %>%
+  filter(Priority %in% c("2", "3")) %>%
+  mutate(Priority = as.numeric(Priority))
+
+nrow(ems_filtered)
+nrow(call_data_2)
+
+```
+
+```{r}
+ems_filtered$cluster2 <- k2$cluster # cluster2 = kmeans attempt 2 clustering
+
+```
+
+```{r, fig.width=9}
+# what is each cluster like
+call_data_2 %>%
+  group_by(cluster) %>%
+  summarise(
+    rt = mean(response_time),
+    als = mean(medical_als),
+    bls = mean(medical_bls),
+    fire = mean(fire_response),
+    command = mean(command),
+    support = mean(support),
+    priority = mean(Priority)
+  ) %>%
+  tidyr::pivot_longer(-cluster) %>%
+  ggplot(aes(x = name, y = value, fill =factor(cluster))) +
+  geom_col(position = "dodge") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+
+- Cluster 1 (Red) [Low-priority, slow BLS/service calls]: No/low ALS, BLS-heavy, low command, some fire, non-emergency, high response time, no support
+
+- Cluster 2 (Green) [High-priority, fast ALS (+support?) calls]: ALS-heavy, some BLS, low command, low fire, emergency, low response time, SUPPORT
+  - extra support could mean potentially more complicated/serious scenes
+
+- Cluster 3 (Blue) [Non-emergency or delayed ALS calls]: ALS-heavy, no/low BLS, no/low command, no/low fire, non-emergency, highest response time, no support
+
+- Cluster 4 (Purple) [Fire Incidents]: ALS-heavy, low BLS, low command, FIRE, emergency, LOWEST response time, no support
+
+```{r}
+# confirm/understand further by looking at call type distribution by cluster
+calltype_cluster <- ems_filtered %>%
+  count(cluster2, `Call Type`) %>%
+  group_by(cluster2) %>%
+  mutate(prop = n / sum(n))
+
+calltype_cluster %>%
+  group_by(cluster2) %>%
+  slice_max(prop, n = 10) %>%
+  ggplot(aes(x = reorder(`Call Type`, prop),y = prop,fill = factor(cluster2))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top Call Types per Cluster", fill = "Cluster")
+
+```
+
+```{r, fig.width=10}
+# remove "medical incident" bc it dominates
+calltype_cluster <- ems_filtered %>%
+  filter(`Call Type` != "Medical Incident") %>%
+  count(cluster2, `Call Type`) %>%
+  group_by(cluster2) %>%
+  mutate(prop = n / sum(n))
+
+calltype_cluster %>%
+  group_by(cluster2) %>%
+  slice_max(prop, n = 10) %>%
+  ggplot(aes(x = reorder(`Call Type`, prop),y = prop,
+             fill = factor(cluster2))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top Call Types per Cluster (Exclude Medical Incident)",
+       fill = "Cluster")
+
+```
+
+- this explains blue - the ALS/emergency group with long response times - citizen assistance/service call is complicated
+
+numerically cluster 4 dominates (fires):
+1        4 230916
+2        3  96565
+3        1  67116
+4        2  15784
+
+```{r}
+# top neighborhoods per cluster
+neighborhood_cluster <- ems_filtered %>%
+  count(cluster2, `Neighborhooods - Analysis Boundaries`) %>%
+  group_by(cluster2) %>%
+  mutate(prop = n / sum(n))
+
+
+neighborhood_cluster %>%
+  group_by(cluster2) %>%
+  slice_max(prop, n = 10) %>%
+  ggplot(aes(x = reorder(`Neighborhooods - Analysis Boundaries`, prop),
+             y = prop,
+             fill = factor(cluster2))) +
+  geom_col() +
+  coord_flip() +
+  labs(title = "Top Neighborhoods per Cluster", fill = "Cluster")
+```
+
+```{r, fig.width=10, fig.height=12}
+ems_filtered %>%
+  count(`Neighborhooods - Analysis Boundaries`, cluster2) %>%
+  group_by(`Neighborhooods - Analysis Boundaries`) %>%
+  mutate(prop = n / sum(n)) %>%
+  ggplot(aes(x = reorder(`Neighborhooods - Analysis Boundaries`, prop),y = prop,fill = factor(cluster2))) +
+  geom_col(position = "fill") +
+  coord_flip()
+```
+
+```{r}
+# PCA
+
+pca <- prcomp(X2)
+
+pca_df <- data.frame(pca$x[,1:2], cluster = factor(k2$cluster))
+
+ggplot(pca_df, aes(PC1, PC2, color = cluster)) +
+  geom_point(alpha = 0.3)
+
+```
+
+```{r}
+# remove response time?
+
+call_data_3 <- emergency_response_data %>%
+  select(
+    medical_als,
+    medical_bls,
+    fire_response,
+    command,
+    support,
+    Priority
+  )
+
+call_data_3 <- call_data_3 %>%
+  filter(Priority %in% c("2", "3")) %>%
+  mutate(Priority = as.numeric(Priority))
+
+```
+
+```{r}
+# scale
+X3 <- scale(call_data_3)
+
+set.seed(21)
+
+k3 <- kmeans(X3, centers = 4, nstart = 25)
+
+call_data_3$cluster <- k3$cluster
+
+```
+
+```{r}
+call_data_3 %>%
+  group_by(cluster) %>%
+  summarise(across(everything(), mean))
+
+```
+
+```{r, fig.height=12, fig.width=8}
+ems_filtered$cluster3 <- k3$cluster
+
+ggplot(ems_filtered, aes(x = factor(cluster3), y = response_time)) +
+  geom_boxplot() +
+  labs(
+    x = "Cluster",
+    y = "Response Time (minutes)",
+    title = "Response Time Distribution Across Clusters (No RT in Clustering)"
+  )
+
+```
+
+```{r, fig.width=9}
+# what is each cluster like
+call_data_3 %>%
+  group_by(cluster) %>%
+  summarise(
+    als = mean(medical_als),
+    bls = mean(medical_bls),
+    fire = mean(fire_response),
+    command = mean(command),
+    support = mean(support),
+    priority = mean(Priority)
+  ) %>%
+  tidyr::pivot_longer(-cluster) %>%
+  ggplot(aes(x = name, y = value, fill =factor(cluster))) +
+  geom_col(position = "dodge") +
+  theme(axis.text.x = element_text(angle = 45, hjust = 1))
+
+```
+- cluster numbers shuffled, but basic meaning of categories appears the same -- double check this
+
+
+```{r}
+
+
+
+
+```
+
+```{r}
+
 
 ```
 
