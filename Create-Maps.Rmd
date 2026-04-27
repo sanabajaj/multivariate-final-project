@@ -70,10 +70,22 @@ neighbor_data <- ems %>%
   group_by(neighborho) %>%
   summarise(
     avg_rt = mean(response_time, na.rm = TRUE),
+    
+    avg_rt_als = ifelse(
+      sum(medical_als == 1) > 0,
+      mean(response_time[medical_als == 1], na.rm = TRUE),
+      NA
+    ),
+    
+    avg_rt_p3 = ifelse(
+      sum(Priority == 3) > 0,
+      mean(response_time[Priority == 3], na.rm = TRUE),
+      NA
+    ),
+    
     n_calls = n(),
     .groups = "drop"
   )
-
 ```
 
 ```{r}
@@ -111,6 +123,42 @@ ggplot(map_data) +
   theme_minimal() +labs(title = "SF EMS Response Time by Neighborhood")
 
 ```
+
+```{r}
+# what ab response time for ALS-heavy cases?
+ggplot(map_data) +
+  geom_sf(aes(fill = avg_rt_als), color = "white") +
+  scale_fill_gradientn(
+    colors = c("#3BA272", "#A3C9A8", "#F2C57C", "#E07A5F"),
+    na.value = "grey80",
+    name = "Avg Response Time"
+  ) +
+  theme_minimal() +labs(title = "SF EMS Response Time by Neighborhood, ALS Cases")
+
+
+```
+
+```{r}
+# priority = 3 = emergency
+ggplot(map_data) +
+  geom_sf(aes(fill = avg_rt_p3), color = "white") +
+  scale_fill_gradientn(
+    colors = c("#3BA272", "#A3C9A8", "#F2C57C", "#E07A5F"),
+    na.value = "grey80",
+    name = "Avg Response Time"
+  ) +
+  theme_minimal() +labs(title = "SF EMS Response Time by Neighborhood, Emergency Priority")
+
+```
+
+
+
+
+
+
+
+
+
 
 
 
