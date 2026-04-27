@@ -1,0 +1,121 @@
+---
+title: "Create-Shiny-Dataset"
+author: "Sanjana Bajaj"
+date: "2026-04-27"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r}
+library(dplyr)
+```
+
+
+
+```{r}
+setdiff(
+  neighbor_data$`Neighborhooods - Analysis Boundaries`,
+  geo$neighborho
+)
+
+
+```
+```{r}
+setdiff(
+  geo$neighborho,
+  neighbor_data$`Neighborhooods - Analysis Boundaries`
+)
+
+```
+```{r}
+#adjust ems data to match gov shapefilenaming conventions
+ems <- emergency_response_data %>%
+  mutate(neighborho = case_when(
+    
+    # combine
+    `Neighborhooods - Analysis Boundaries` %in% c("Tenderloin", "Hayes Valley") ~ "Downtown/Civic Center",
+    
+    # rename
+    `Neighborhooods - Analysis Boundaries` == "Bayview Hunters Point" ~ "Bayview",
+    `Neighborhooods - Analysis Boundaries` == "Financial District/South Beach" ~ "Financial District",
+    `Neighborhooods - Analysis Boundaries` == "Oceanview/Merced/Ingleside" ~ "Ocean View",
+    `Neighborhooods - Analysis Boundaries` == "Treasure Island" ~ "Treasure Island/YBI",
+    
+    # merge into others
+    `Neighborhooods - Analysis Boundaries` %in% c("Lone Mountain/USF", "Inner Richmond") ~ "Inner Richmond",
+    `Neighborhooods - Analysis Boundaries` %in% c("Mission Bay", "South of Market") ~ "South of Market",
+    `Neighborhooods - Analysis Boundaries` %in% c("McLaren Park", "Visitacion Valley") ~ "Visitacion Valley",
+    `Neighborhooods - Analysis Boundaries` %in% c("Lincoln Park", "Seacliff") ~ "Seacliff",
+    `Neighborhooods - Analysis Boundaries` %in% c("Portola", "Excelsior") ~ "Excelsior",
+    
+    TRUE ~ `Neighborhooods - Analysis Boundaries`
+  ))
+
+```
+
+```{r}
+# data that contains all the priorities
+ems <- ems %>%
+  filter(neighborho != "None")
+
+```
+
+```{r}
+# now aggregate
+
+neighbor_data <- ems %>%
+  group_by(neighborho) %>%
+  summarise(
+    avg_rt = mean(response_time, na.rm = TRUE),
+    n_calls = n(),
+    .groups = "drop"
+  )
+
+```
+
+```{r}
+# let diamond heights + crocker amazon be NA later --> come up grey on the map
+
+# combine outer sunset and parkside
+library(sf)
+geo <- st_as_sf(geo, wkt = "the_geom")
+
+geo <- geo %>%
+  mutate(neighborho = case_when(
+    neighborho %in% c("Outer Sunset", "Parkside") ~ "Sunset/Parkside",
+    TRUE ~ neighborho
+  )) %>%
+  group_by(neighborho) %>%
+  summarise(geometry = st_union(geometry), .groups = "drop")
+
+```
+
+```{r}
+map_data <- geo %>%
+  left_join(neighbor_data, by = "neighborho")
+```
+
+```{r}
+library(ggplot2)
+
+ggplot(map_data) +
+  geom_sf(aes(fill = avg_rt), color = "white") +
+  scale_fill_gradientn(
+    colors = c("#3BA272", "#A3C9A8", "#F2C57C", "#E07A5F"),
+    na.value = "grey80",
+    name = "Avg Response Time"
+  ) +
+  theme_minimal() +labs(title = "SF EMS Response Time by Neighborhood")
+
+```
+
+
+
+
+
+
+
+
