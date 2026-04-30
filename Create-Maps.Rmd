@@ -83,6 +83,19 @@ neighbor_data <- ems %>%
       NA
     ),
     
+    p90_rt_p3 = ifelse(
+      sum(Priority == 3) > 0,
+      quantile(response_time[Priority == 3], 0.9, na.rm = TRUE),
+      NA_real_
+    ),
+    
+    cv_rt_p3 = ifelse(
+      sum(Priority == 3) > 1,
+      sd(response_time[Priority==3], na.rm = TRUE) / mean(response_time[Priority==3], na.rm=TRUE),
+      NA_real_
+    ),
+    
+  
     n_calls = n(),
     .groups = "drop"
   )
@@ -93,7 +106,7 @@ neighbor_data <- ems %>%
 
 # combine outer sunset and parkside
 library(sf)
-geo <- st_as_sf(geo, wkt = "the_geom")
+geo <- st_as_sf(Planning_Neighborhood_Groups_Map_20260426, wkt = "the_geom")
 
 geo <- geo %>%
   mutate(neighborho = case_when(
@@ -101,7 +114,7 @@ geo <- geo %>%
     TRUE ~ neighborho
   )) %>%
   group_by(neighborho) %>%
-  summarise(geometry = st_union(geometry), .groups = "drop")
+  summarise(geometry = st_union(the_geom), .groups = "drop")
 
 ```
 
@@ -152,11 +165,45 @@ ggplot(map_data) +
 ```
 
 
+```{r}
+# n_calls (raw)
+ggplot(map_data) +
+  geom_sf(aes(fill = n_calls), color = "white") +
+  scale_fill_gradientn(
+    colors = c("#3BA272", "#A3C9A8", "#F2C57C", "#E07A5F"),
+    na.value = "grey80",
+    name = "Number of Calls (Raw)"
+  ) +
+  theme_minimal() +labs(title = "SF EMS Number of Calls Received by Neighborhood")
+
+```
+
+```{r}
+# 90th percentile
+ggplot(map_data) +
+  geom_sf(aes(fill = p90_rt_p3), color = "white") +
+  scale_fill_gradientn(
+    colors = c("#3BA272", "#A3C9A8", "#F2C57C", "#E07A5F"),
+    na.value = "grey80",
+    name = "Avg Response Time"
+  ) +
+  theme_minimal() +labs(title = "SF EMS 90th Percentile Response Time by Neighborhood")
+
+```
 
 
+```{r}
+# coefficient of variation
+ggplot(map_data) +
+  geom_sf(aes(fill = cv_rt_p3), color = "white") +
+  scale_fill_gradientn(
+    colors = c("#3BA272", "#A3C9A8", "#F2C57C", "#E07A5F"),
+    na.value = "grey80",
+    name = "Response Time Variability"
+  ) +
+  theme_minimal() +labs(title = "SF EMS CV of Response Time by Neighborhood")
 
-
-
+```
 
 
 

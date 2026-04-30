@@ -189,14 +189,26 @@ emergency_response_data %>%
 
 ```
 
-```{r}
+```{r, fig.width=8, fig.height=16}
 
 # response time by call type
 emergency_response_data %>%
   group_by(`Call Type`) %>%
   summarise(mean_rt = mean(response_time), n = n()) %>%
+  filter(n > 30) %>%
   arrange(desc(mean_rt))
 
+valid_ems <- emergency_response_data %>%
+  group_by(`Call Type`) %>%
+  filter(n() > 30)
+
+ggplot(valid_ems, aes(x=reorder(`Call Type`, response_time, FUN=median),
+                      y = response_time)) +
+  geom_boxplot() +
+  coord_flip() +
+  labs(x="Call Type", y="Response Time") +
+  theme_minimal() +
+  geom_point(size = 0.2)
 ```
 
 ```{r}
@@ -208,7 +220,8 @@ emergency_response_data %>%
 
 ```{r}
 # neighborhood
-emergency_response_data %>%
+neighbo_rt <- emergency_response_data %>%
+  filter(`Neighborhooods - Analysis Boundaries` != "None") %>%
   group_by(`Neighborhooods - Analysis Boundaries`) %>%
   summarise(mean_rt = mean(response_time), n=n()) %>%
   arrange(desc(mean_rt))
@@ -216,7 +229,28 @@ emergency_response_data %>%
 # so 10 incidents have "None"
 # western addition is fastest - google confirms - has a lot of private providers
 # presidio heights, pac heights, rich asf
+
+neighbo_rt
 ```
+
+```{r, fig.width = 13}
+
+# visualize
+library(ggplot2)
+
+ggplot(neighbo_rt, aes(
+  x = reorder(`Neighborhooods - Analysis Boundaries`, mean_rt), 
+  y = mean_rt,
+  fill = mean_rt
+)) +
+  geom_col() +
+  coord_flip() +
+  scale_fill_gradientn(
+    colors = c("#3BA272", "#A3C9A8", "#F2C57C", "#E07A5F")
+  )
+
+```
+
 
 ```{r, fig.height=10}
 boxplot(response_time ~ `Fire Prevention District`, data = emergency_response_data, outcex=0.5)
@@ -242,7 +276,7 @@ neighborhood_calls <- emergency_response_data %>%
 
 top_calls <- neighborhood_calls %>%
   group_by(`Neighborhooods - Analysis Boundaries`) %>%
-  slice_max(order_by = n, n=10)
+  slice_max(order_by = n, n=3)
 
 top_calls
 
@@ -483,6 +517,37 @@ numerically cluster 4 dominates (fires):
 3        1  67116
 4        2  15784
 
+
+^^ misleading plot
+```{r}
+# get top call types overall (not per cluster)
+top_calls <- ems_filtered %>%
+  filter(`Call Type` != "Medical Incident") %>%
+  count(`Call Type`) %>%
+  slice_max(n, n = 10) %>%
+  pull(`Call Type`)
+
+# recompute proportions
+calltype_cluster <- ems_filtered %>%
+  filter(`Call Type` %in% top_calls) %>%
+  count(cluster2, `Call Type`) %>%
+  group_by(cluster2) %>%
+  mutate(prop = n / sum(n))
+
+ggplot(calltype_cluster,
+       aes(x = reorder(`Call Type`, prop),
+           y = prop,
+           fill = factor(cluster2))) +
+  geom_col() +
+  coord_flip() +
+  facet_wrap(~cluster2) +
+  labs(title = "Top Call Types Within Each Cluster",
+       y = "Proportion",
+       fill = "Cluster") +
+  theme(legend.position = "none")
+
+```
+
 ```{r}
 # top neighborhoods per cluster
 neighborhood_cluster <- ems_filtered %>%
@@ -600,13 +665,30 @@ call_data_3 %>%
 
 
 
+```
+
+```{r}
+# response time
+anova_rt <- aov(response_time ~ factor(cluster3), data = ems_filtered)
+summary(anova_rt)
+
+kruskal_rt <- kruskal.test(response_time ~ factor(cluster3), data = ems_filtered)
+kruskal_rt
 
 ```
 
 ```{r}
-
+# chi square
+tab <- table(ems_filtered$cluster3, ems_filtered$`Call Type`)
+chisq.test(tab)
 
 ```
+
+
+
+
+
+
 
 
 
