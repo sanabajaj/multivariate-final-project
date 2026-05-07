@@ -1,0 +1,209 @@
+---
+title: "Cleaning_Script_Trees"
+output: html_document
+date: "2026-05-07"
+---
+
+```{r setup, include=FALSE}
+
+library(data.table)
+#data <- fread("Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20260421.csv")
+#data<- na.omit(data)
+#setDT(data)
+
+```
+
+```{r}
+length(unique(data$`Incident Number`))
+nrow(data)
+```
+
+```{r}
+data[, `Call Date` := as.Date(`Call Date`, format = "%m/%d/%Y")]
+cutoff <- as.Date("2021-01-01")
+data_last5 <- data[`Call Date` >= cutoff]
+
+```
+
+
+```{r}
+
+incident_flags <- data_last5 %>%
+  group_by(`Incident Number`) %>%
+  summarise(
+    medical_als = as.integer(any(`Unit Type` == "MEDIC")),
+    medical_bls = as.integer(any(`Unit Type` %in% c("BLS", "PRIVATE"))),
+    
+    fire_response = as.integer(any(`Unit Type` %in% c("ENGINE", "TRUCK", "RESCUE SQUAD"))),
+    
+    command = as.integer(any(`Unit Type` %in% c("CHIEF", "RESCUE CAPTAIN", "CP"))),
+    
+    support = as.integer(any(`Unit Type` %in% c("SUPPORT"))),
+    
+    .groups = "drop"
+  )
+```
+
+
+```{r}
+incident_base <- data_last5 %>%
+  distinct(`Incident Number`, .keep_all = TRUE)
+
+```
+
+```{r}
+
+incident_level <- incident_base %>%
+  left_join(incident_flags, by = "Incident Number")
+
+```
+
+```{r}
+incident_level_clean <- incident_level %>%
+  select(-is_engine, -is_medic, -is_truck,
+         -is_chief, -is_rescue, -is_private,
+         -is_rescue_captain, -is_cp, -is_bls,
+         -is_support)
+ # let's just keep the columns that indicate is als, bls, command officers arrives, and support
+```
+
+```{r}
+
+incident_last3 <- incident_level_clean %>%
+  filter(`Call Date` >= as.Date("2023-03-31")) #sf got budget increase in 2024-2025 fiscal yr, lets look at halfway through 2023-24 fiscal yr to see any dif in response times
+
+#end up w 500k rows
+```
+
+```{r}
+### New CSV to work with; filtered by year
+write.csv(incident_last3, "emergency_response_data.csv", row.names = FALSE)
+
+```
+
+Now let's further clean emergency_response_data.csv so it is workable for our
+regression/classification purposes
+
+
+```{r}
+
+# check which columns have NAs or empty cells
+sapply(emergency_response_data, function(col) {
+  sum(is.na(col) | (is.character(col) & col == ""))
+})
+
+```
+
+```{r}
+
+# drop columns that are redundant or irrelevant for response time
+emergency_response_data <- emergency_response_data %>%
+  select(
+    -Box,
+    -Address,
+    -`Unit ID`,
+    -`Call Number`,
+    -`Original Priority`,
+    -`Zipcode of Incident`,
+    -`Available DtTm`,
+    -`Transport DtTm`,
+    -`Hospital DtTm`,
+    -`Watch Date`,
+    -`Response DtTm`,
+    -`Supervisor District`,
+    -`Unit sequence in call dispatch`,
+    -`Final Priority`,
+    -`Station Area`,
+    -`Battalion`,
+    -`Call Type Group`,
+  )
+
+```
+
+```{r}
+emergency_response_data <- emergency_response_data %>% select(-`Entry DtTm`)
+
+```
+
+```{r}
+emergency_response_data[emergency_response_data == ""] <- NA
+
+# drop all the rows with NAs/empty cells for necessary features
+emergency_response_data <- emergency_response_data %>%
+  filter(
+    !is.na(case_location),                     
+    !is.na(`On Scene DtTm`),
+    !is.na(City)
+  )
+```
+
+```{r}
+# some SF neighborhoods were marked in the "city" col. these should say SF since they are part of SF
+
+emergency_response_data$City[emergency_response_data$City %in% c("Presidio", "Treasure Isla", "Hunters Point", "Fort Mason", "Yerba Buena")] <- "San Francisco"
+
+
+```
+
+```{r}
+
+sapply(emergency_response_data, function(col) {
+  sum(is.na(col) | (is.character(col) & col == ""))
+})
+
+```
+
+```{r}
+library(lubridate)
+library(dplyr)
+
+# convert to date-time
+emergency_response_data <- emergency_response_data %>%
+  mutate(
+    `Received DtTm`  = ymd_hms(`Received DtTm`),
+    `On Scene DtTm`  = ymd_hms(`On Scene DtTm`),
+    `Dispatch DtTm` = ymd_hms(`Dispatch DtTm`)
+  )
+
+# create the response_time variable
+emergency_response_data <- emergency_response_data %>%
+  mutate(
+    response_time = as.numeric(difftime(`On Scene DtTm`, `Received DtTm`, units = "mins"))  )
+
+```
+
+```{r}
+
+# remove response & dispatch times < 0, and the one incident with 1911 min response & dispatch time
+
+emergency_response_data <- emergency_response_data %>%
+  filter(response_time > 0)
+
+
+```
+
+```{r}
+head(sort(emergency_response_data$response_time, decreasing = TRUE), 30)
+
+# drop the rows with response time > 180 mins -- this is very likely to be a special case, or a data entry error
+
+emergency_response_data <- emergency_response_data %>%
+  filter(response_time <= 180)
+
+```
+
+```{r}
+
+hist(emergency_response_data$response_time)
+```
+
+```{r}
+
+
+emergency_response_data <- emergency_response_data %>%
+  mutate(
+    hour = hour(`Received DtTm`),
+    day_of_week = wday(`Received DtTm`, label = TRUE)
+  )
+
+```
