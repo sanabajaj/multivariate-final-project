@@ -14,11 +14,6 @@ library(data.table)
 ```
 
 ```{r}
-length(unique(data$`Incident Number`))
-nrow(data)
-```
-
-```{r}
 data[, `Call Date` := as.Date(`Call Date`, format = "%m/%d/%Y")]
 cutoff <- as.Date("2021-01-01")
 data_last5 <- data[`Call Date` >= cutoff]
@@ -47,7 +42,10 @@ incident_flags <- data_last5 %>%
 
 ```{r}
 incident_base <- data_last5 %>%
-  distinct(`Incident Number`, .keep_all = TRUE)
+  mutate(`On Scene DtTm` = ymd_hms(`On Scene DtTm`)) %>%
+  group_by(`Incident Number`) %>%
+  slice_max(`On Scene DtTm`, n = 1, with_ties = FALSE) %>%
+  ungroup()
 
 ```
 
@@ -59,20 +57,12 @@ incident_level <- incident_base %>%
 ```
 
 ```{r}
-incident_level_clean <- incident_level %>%
-  select(-is_engine, -is_medic, -is_truck,
-         -is_chief, -is_rescue, -is_private,
-         -is_rescue_captain, -is_cp, -is_bls,
-         -is_support)
- # let's just keep the columns that indicate is als, bls, command officers arrives, and support
-```
 
-```{r}
-
-incident_last3 <- incident_level_clean %>%
+incident_level <- incident_level %>%
   filter(`Call Date` >= as.Date("2023-03-31")) #sf got budget increase in 2024-2025 fiscal yr, lets look at halfway through 2023-24 fiscal yr to see any dif in response times
 
 #end up w 500k rows
+
 ```
 
 ```{r}
@@ -83,7 +73,6 @@ write.csv(incident_last3, "emergency_response_data.csv", row.names = FALSE)
 
 Now let's further clean emergency_response_data.csv so it is workable for our
 regression/classification purposes
-
 
 ```{r}
 
