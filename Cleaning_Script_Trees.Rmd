@@ -7,10 +7,9 @@ date: "2026-05-07"
 ```{r setup, include=FALSE}
 
 library(data.table)
-#data <- fread("Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20260421.csv")
-#data<- na.omit(data)
-#setDT(data)
-
+data <- fread("Fire_Department_and_Emergency_Medical_Services_Dispatched_Calls_for_Service_20260421.csv")
+data<- na.omit(data)
+setDT(data)
 ```
 
 ```{r}
@@ -47,6 +46,9 @@ incident_base <- data_last5 %>%
   slice_max(`On Scene DtTm`, n = 1, with_ties = FALSE) %>%
   ungroup()
 
+
+## keep response time of last unit to arrive on scene as the incident response time
+
 ```
 
 ```{r}
@@ -67,7 +69,7 @@ incident_level <- incident_level %>%
 
 ```{r}
 ### New CSV to work with; filtered by year
-write.csv(incident_last3, "emergency_response_data.csv", row.names = FALSE)
+write.csv(incident_level, "emergency_response_data.csv", row.names = FALSE)
 
 ```
 
